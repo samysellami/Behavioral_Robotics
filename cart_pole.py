@@ -27,10 +27,11 @@ for i in range(lmbda):
     W2 = np.random.randn(noutputs, nhiddens) * pvariance # second layer
     b1 = np.zeros(shape=(nhiddens, 1)) # bias first layer
     b2 = np.zeros(shape=(noutputs, 1)) # bias second layer
-    thta = np.vstack((np.resize(W1,(ninputs * nhiddens,1)), np.resize(W2,(noutputs * nhiddens,1)), b1, b2))  # parameters of the populati
+    thta = np.vstack((np.resize(W1,(ninputs * nhiddens,1)), np.resize(W2,(noutputs * nhiddens,1)), b1, b2))  # parameters of the population
     theta[:,i] =  thta[:,0]
 
 
+# function to extract the training parameters from the vector of parameters of the population 
 def extract_params(theta,j):
     idx = 0
     idx1 = ninputs * nhiddens
@@ -52,9 +53,11 @@ def extract_params(theta,j):
 
 
 for i in range(200):
+    # initialize the fitness vector
     s = np.zeros((lmbda))
 
     for j in range(lmbda):
+	# extract the training parameters 
         W1, W2, b1, b2 = extract_params(theta, j)
         
         observation = env.reset()
@@ -79,19 +82,24 @@ for i in range(200):
             
             #env.render()
             observation, reward, done, info = env.step(action)
+            # update the fitness value for the evaluation episode i	
             s[j] = s[j] +  reward
 
         env.close()
     print(s)
+    # ranking individuals by fitness
     u = np.argsort(-s)
-
+	
+    # updating the parameters vectors according to fitness ranking
     for l in range(int(lmbda/2)):
         eps = np.random.randn(thta_len,1) * sigma
         theta[:, u[ int(lmbda/2) + l] ] = theta[:, u[l]]   +  eps[:,0]
 
+    # extract the best parameters for the current evaluation episode
     W1, W2, b1, b2 = extract_params(theta, u[0])        
     observation = env.reset()
-
+    
+    # render the environment for the best parameters of the current evalutaion episode
     for _ in range(500):
         
             # convert the observation array into a matrix with 1 column and ninputs rows
