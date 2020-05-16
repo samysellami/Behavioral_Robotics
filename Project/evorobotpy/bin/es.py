@@ -19,7 +19,14 @@ import numpy as np
 import configparser
 import sys
 import os
+import subprocess
+from mpi4py import MPI
+import stat 
 
+### MPI related code
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+# import balance_bot
 
 # global variables
 scriptdirname = os.path.dirname(os.path.realpath(__file__))  # Directory of the script .py
@@ -133,6 +140,7 @@ def helper():
     print("-T [filename]             : the .npy file containing the policy to be tested, display neurons")    
     print("-d [directory]            : the directory where all output files are stored (default current dir)")
     print("-tf                       : use tensorflow policy (valid only for gym and pybullet")
+    print("-w [integer]              : the number of worker to use in the parallel processing")
     print("")
     print("The .ini file contains the following [ADAPT] and [POLICY] parameters:")
     print("[ADAPT]")
@@ -194,6 +202,7 @@ def main(argv):
     test = 0                # whether we rewant to test a policy (1=show behavior, 2=show neurons)
     displayneurons = 0      # whether we want to display the activation state of the neurons
     useTf = False           # whether we want to use tensorflow to implement the policy
+    n_workers = None        # the number of the workers (number of processors -1)
     
     i = 1
     while (i < argc):
@@ -235,6 +244,11 @@ def main(argv):
             if (i < argc):
                 filedir = argv[i]
                 i += 1
+        elif (argv[i] == "-w"):
+            i += 1
+            if (i < argc):
+                n_workers = int(argv[i])
+                i += 1
         elif (argv[i] == "-tf"):
             i += 1
             useTf = True
@@ -242,6 +256,15 @@ def main(argv):
             # We simply ignore the argument
             print("\033[1mWARNING: unrecognized argument %s \033[0m" % argv[i])
             i += 1
+
+    # os.chmod('/opt/evorobotpy/bin/es_parallel.py', 0o777)
+    # return 
+
+    if  n_workers is not None: 
+        if "parent" == mpi_fork(n_workers) : 
+            os.exit()
+        print("process", rank, "out of total ", comm.Get_size(), "started")
+
 
     # load the .ini file
     if filename is not None:
@@ -261,7 +284,7 @@ def main(argv):
         for a in availableAlgos:
             print("%s" % a)
         sys.exit(-1)
-
+    
     print("Environment %s nreplications %d maxmsteps %dm " % (environment, nreplications, maxsteps / 1000000))
     env = None
     policy = None
@@ -323,7 +346,10 @@ def main(argv):
         from cmaes import CMAES
         algo = CMAES(env, policy, cseed, filedir)
     elif (algoname =='Salimans'):
-        from salimans import Salimans
+        if n_workers is not None:
+            from salimans_parallel import Salimans
+        else:
+            from salimans import Salimans
         algo = Salimans(env, policy, cseed, filedir)
     elif (algoname == 'xNES'):
         from xnes import xNES
@@ -345,6 +371,11 @@ def main(argv):
         algo = pepg(env, policy, cseed, filedir)
     # Set evolutionary variables
     algo.setEvoVars(sampleSize, stepsize, noiseStdDev, sameenvcond, wdecay, evalCenter, saveeachg, fromgeneration)
+    
+    # Set process variables
+    if n_workers is not None:
+        include_master = 1  # include the master process in the population evaluation
+        algo.setProcess(n_workers, comm, rank, include_master)
 
     if (test > 0):
         # test a policy
@@ -363,5 +394,30 @@ def main(argv):
         else:
             print("\033[1mPlease indicate the seed to run evolution\033[0m")
 
+def mpi_fork(n):
+  """Re-launches the current script with workers
+  Returns "parent" for original parent, "child" for MPI children
+  (from https://github.com/garymcintire/mpi_util/)
+  """
+  if n<=1:
+    return "child"
+  if os.getenv("IN_MPI") is None:
+    env = os.environ.copy()
+    env.update(
+      MKL_NUM_THREADS="1",
+      OMP_NUM_THREADS="1",
+      IN_MPI="1"
+    )
+    print( ["mpirun", "-np  ", str(n), sys.executable] + sys.argv)
+    subprocess.check_call(["mpirun", "-np", str(n), sys.executable] +['-u']+ sys.argv, env=env)
+    return "parent"
+  else:
+    global nworkers, rank
+    nworkers = comm.Get_size()
+    rank = comm.Get_rank()
+    #print('assigning the rank and nworkers', nworkers, rank)
+    return "child"
+
 if __name__ == "__main__":
     main(sys.argv)
+
